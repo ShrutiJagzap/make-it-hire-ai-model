@@ -1,0 +1,13 @@
+numpy
+opencv-python
+face-recognition
+scikit-learn
+sentence-transformers
+PyPDF2
+python-docx
+deepface
+tf-keras
+fastapi
+uvicorn
+python-multipart
+requests

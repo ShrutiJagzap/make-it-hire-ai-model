@@ -1,0 +1,48 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files (VERY IMPORTANT)
+temp/
+temp_audio/
+
+# Uploaded files (VERY IMPORTANT)
+uploads/
+data/uploads/
+data/id_photos/
+data/reports/
+
+# Large files (optional but recommended)
+*.mp4
+*.wav
+*.mp3
+*.avi
+*.pdf
+*.jpg
+*.png
+
+# Model training artifacts (optional)
+*.h5
+*.pt
+*.pth
+*.ckpt
+
+models/
+
+# Ignore IDE
+.vscode/
+.idea/

@@ -29,13 +29,20 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MakeItHired AI Service")
 
-# Configure CORS
+
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", 
+    "http://localhost:5173,"
+    "http://localhost:8081,"
+    "https://make-it-hire-frontend.onrender.com,"
+    "https://make-it-hire-backend.onrender.com"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8081"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
 )
 
 # Initialize ML components
@@ -56,8 +63,11 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 active_sessions = {}
 
 # Gemini API Key (Move to environment variable!)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCTr8nZkgmKXnKxGahSXxqYOOW13V9-nyo")
+
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    print("⚠️ WARNING: GEMINI_API_KEY not set in environment variables")
 
 firebase_initialized = False
 

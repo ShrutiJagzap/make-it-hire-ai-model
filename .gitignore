@@ -11,6 +11,7 @@ env/
 
 # Logs
 *.log
+*.tmp
 
 # OS files
 .DS_Store
@@ -46,5 +47,8 @@ models/
 # Ignore IDE
 .vscode/
 .idea/
+.github/
+.git
+
 
 firebase-service-account.json

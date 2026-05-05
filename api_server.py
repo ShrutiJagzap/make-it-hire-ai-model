@@ -64,12 +64,13 @@ active_sessions = {}
 
 # Gemini API Key (Move to environment variable!)
 
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 if not GEMINI_API_KEY:
     print("⚠️ WARNING: GEMINI_API_KEY not set in environment variables")
 
 firebase_initialized = False
+
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
 try:
     # Check if service account file exists in current directory

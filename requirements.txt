@@ -1,19 +1,19 @@
 # Core Web Framework
 fastapi==0.104.1
-uvicorn[standard]==0.24.0
+uvicorn==0.24.0
 python-multipart==0.0.6
 
 # ML/AI
-spacy==3.7.2
-sentence-transformers==2.2.2
-deepface==0.0.79
-opencv-python==4.8.1.78
-numpy==1.24.3
+# spacy==3.7.2
+# sentence-transformers==2.2.2
+# deepface==0.0.79
+# opencv-python==4.8.1.78
+# numpy==1.24.3
 
 # Audio Processing (WebRTC VAD, Whisper, etc.)
-speechrecognition==3.10.1
-pydub==0.25.1
-openai-whisper==20231117
+# speechrecognition==3.10.1
+# pydub==0.25.1
+# openai-whisper==20231117
 
 # PDF Processing
 PyPDF2==3.0.1

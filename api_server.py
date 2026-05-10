@@ -23,6 +23,9 @@ import firebase_admin
 from firebase_admin import credentials, storage
 import tempfile
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,11 +65,10 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 # Store active sessions
 active_sessions = {}
 
-# Gemini API Key (Move to environment variable!)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if not GEMINI_API_KEY:
-    print("⚠️ WARNING: GEMINI_API_KEY not set in environment variables")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# if not GEMINI_API_KEY:
+#     print("⚠️ WARNING: GEMINI_API_KEY not set in environment variables")
 
 firebase_initialized = False
 

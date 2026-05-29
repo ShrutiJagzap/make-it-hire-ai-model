@@ -8,12 +8,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy and install requirements
+# Copy requirements first
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Install spacy model directly from pip (not download command)
-RUN pip install --no-cache-dir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+# Install with specific versions to avoid conflicts
+RUN pip install --no-cache-dir numpy==1.24.3
+RUN pip install --no-cache-dir opencv-python-headless==4.8.1.78
+RUN pip install --no-cache-dir tensorflow==2.15.0 keras==2.15.0
+RUN pip install --no-cache-dir deepface==0.0.79
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

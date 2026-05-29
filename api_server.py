@@ -36,7 +36,7 @@ app = FastAPI(title="MakeItHired AI Service")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", 
     "http://localhost:5173,"
     "http://localhost:8081,"
-    "https://make-it-hire-frontend.onrender.com,"
+    "https://make-it-hire-frontend.vercel.app,"
     "https://make-it-hire-backend.onrender.com"
 ).split(",")
 
@@ -67,8 +67,6 @@ active_sessions = {}
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# if not GEMINI_API_KEY:
-#     print("⚠️ WARNING: GEMINI_API_KEY not set in environment variables")
 
 firebase_initialized = False
 

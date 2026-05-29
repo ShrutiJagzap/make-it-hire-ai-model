@@ -1,6 +1,5 @@
 FROM python:3.10-slim
 
-# Install minimal dependencies for OpenCV
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libgl1 \
@@ -9,8 +8,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Install CPU-only versions (lighter)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir \
+    tensorflow-cpu==2.13.0 \
+    torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

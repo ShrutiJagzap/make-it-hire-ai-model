@@ -4,7 +4,7 @@ uvicorn==0.24.0
 python-multipart==0.0.6
 
 # ML/AI
-spacy==3.7.2
+# spacy==3.7.2
 sentence-transformers==2.2.2
 deepface==0.0.79
 opencv-python-headless==4.9.0.80

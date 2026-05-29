@@ -954,7 +954,6 @@
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
-
 import os
 # Configure environment variables to limit ML thread allocation and memory overhead
 # (Must be done before importing any ML libraries)
@@ -987,10 +986,6 @@ from ml_core.resume_parser import ResumeAnalyzer
 from ml_core.engine import RecruitmentEngine
 from ml_core.report_generator import ReportGenerator
 from ml_core.video_analyzer import VideoAnalyzer
-
-import firebase_admin
-from firebase_admin import credentials, storage
-import tempfile
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -1036,46 +1031,14 @@ active_sessions = {}
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
 firebase_initialized = False
 
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
-
-try:
-    # Check if service account file exists in current directory
-    if os.path.exists("firebase-service-account.json"):
-        cred = credentials.Certificate("firebase-service-account.json")
-        firebase_admin.initialize_app(cred, {
-            'storageBucket': 'make-it-hire-70beb.appspot.com'  # Replace with YOUR bucket name
-        })
-        firebase_initialized = True
-        print(" Firebase Storage initialized for Python service")
-    else:
-        print("⚠️ Firebase service account not found, using local storage")
-except Exception as e:
-    print(f"⚠️ Firebase initialization failed: {e}")
-
 # ========== ADD UPLOAD FUNCTION HERE ==========
 def upload_to_firebase(file_path, folder, user_id):
-    """Upload file to Firebase Storage"""
-    if not firebase_initialized:
-        return None
-    
-    try:
-        bucket = storage.bucket()
-        blob_name = f"{folder}/{user_id}_{int(time.time())}_{os.path.basename(file_path)}"
-        blob = bucket.blob(blob_name)
-        blob.upload_from_filename(file_path)
-        
-        # Make public (optional)
-        blob.make_public()
-        
-        print(f" File uploaded to Firebase: {blob_name}")
-        return blob.public_url
-        
-    except Exception as e:
-        print(f"Firebase upload error: {e}")
-        return None
+    """Upload file to Firebase Storage (Disabled, fallback to local storage)"""
+    return None
     
 # whisper_model = None
 
@@ -1921,4 +1884,3 @@ async def speech_to_text(audio: UploadFile = File(...)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

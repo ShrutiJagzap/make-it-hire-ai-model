@@ -13,7 +13,7 @@ numpy==1.24.3
 # Audio Processing (WebRTC VAD, Whisper, etc.)
 speechrecognition==3.10.1
 pydub==0.25.1
-openai-whisper==20231117
+# openai-whisper==20231117
 
 # PDF Processing
 PyPDF2==3.0.1

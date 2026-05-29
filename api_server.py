@@ -9,7 +9,7 @@ from datetime import datetime
 import logging
 import re
 import time
-import whisper
+# import whisper
 import tempfile
 import subprocess
 
@@ -53,7 +53,7 @@ analyzer = ResumeAnalyzer()
 engine = RecruitmentEngine()
 video_analyzer = VideoAnalyzer()
 
-model = whisper.load_model("base")
+# model = whisper.load_model("base")
 
 UPLOAD_DIR = "data/uploads"
 ID_PHOTOS_DIR = "data/id_photos"
@@ -108,15 +108,15 @@ def upload_to_firebase(file_path, folder, user_id):
         print(f"Firebase upload error: {e}")
         return None
     
-whisper_model = None
+# whisper_model = None
 
-def get_whisper_model():
-    global whisper_model
-    if whisper_model is None:
-        print("🔄 Loading Whisper model...")
-        whisper_model = whisper.load_model("base")
-        print("✅ Whisper model loaded")
-    return whisper_model
+# def get_whisper_model():
+#     global whisper_model
+#     if whisper_model is None:
+#         print("🔄 Loading Whisper model...")
+#         whisper_model = whisper.load_model("base")
+#         print("✅ Whisper model loaded")
+#     return whisper_model
 
 # ==================== HELPER FUNCTIONS ====================
 

@@ -8,12 +8,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install CPU-only versions (lighter)
+# Copy and install requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    tensorflow-cpu==2.13.0 \
-    torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download spacy model
+RUN python -m spacy download en_core_web_sm
 
 COPY . .
 

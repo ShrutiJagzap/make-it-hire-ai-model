@@ -1001,6 +1001,7 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS",
     "http://localhost:5173,"
     "http://localhost:8081,"
     "https://make-it-hire-frontend.vercel.app,"
+    "https://make-it-hire-frontend.onrender.com,"
     "https://make-it-hire-backend.onrender.com"
 ).split(",")
 

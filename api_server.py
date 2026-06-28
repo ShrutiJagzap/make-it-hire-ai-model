@@ -1005,6 +1005,10 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS",
     "https://make-it-hire-backend.onrender.com"
 ).split(",")
 
+if "https://make-it-hire-frontend.onrender.com" not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append("https://make-it-hire-frontend.onrender.com")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

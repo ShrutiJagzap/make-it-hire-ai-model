@@ -1000,13 +1000,12 @@ app = FastAPI(title="MakeItHired AI Service")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", 
     "http://localhost:5173,"
     "http://localhost:8081,"
-    "https://make-it-hire-frontend.vercel.app,"
     "https://make-it-hire-frontend.onrender.com,"
     "https://make-it-hire-backend.onrender.com"
 ).split(",")
 
-if "https://make-it-hire-frontend.onrender.com" not in ALLOWED_ORIGINS:
-    ALLOWED_ORIGINS.append("https://make-it-hire-frontend.onrender.com")
+# if "https://make-it-hire-frontend.onrender.com" not in ALLOWED_ORIGINS:
+#     ALLOWED_ORIGINS.append("https://make-it-hire-frontend.onrender.com")
 
 
 app.add_middleware(
@@ -1038,12 +1037,12 @@ active_sessions = {}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
-firebase_initialized = False
+# firebase_initialized = False
 
 # ========== ADD UPLOAD FUNCTION HERE ==========
-def upload_to_firebase(file_path, folder, user_id):
-    """Upload file to Firebase Storage (Disabled, fallback to local storage)"""
-    return None
+# def upload_to_firebase(file_path, folder, user_id):
+#     """Upload file to Firebase Storage (Disabled, fallback to local storage)"""
+#     return None
     
 # whisper_model = None
 
@@ -1165,11 +1164,17 @@ async def parse_resume(file: UploadFile = File(...)):
             "resume_score": resume_score,
             "timestamp": datetime.now().isoformat()
         }
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Cleaned up temp file: {file_path}")
         
         return result
         
     except Exception as e:
         logger.error(f"Parse resume error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate-questions")

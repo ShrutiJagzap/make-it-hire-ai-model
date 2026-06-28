@@ -1056,21 +1056,58 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pr
 
 # ==================== HELPER FUNCTIONS ====================
 
+def calculate_resume_score_detailed(text: str, skills: list) -> dict:
+    """Calculate resume score and return detailed breakdown"""
+    if not text or not text.strip():
+        return {
+            "total": 35,
+            "breakdown": {
+                "contact_info": 10,
+                "education": 10,
+                "experience": 5,
+                "skills": 5,
+                "formatting_length": 5
+            }
+        }
+        
+    contact_score = 10 if "@" in text else 0
+    phone_score = 10 if (any(char.isdigit() for char in text) and len(text) > 9) else 0
+    
+    education_keywords = ['bachelor', 'master', 'phd', 'degree', 'university', 'college']
+    education_score = 15 if any(k in text.lower() for k in education_keywords) else 0
+    
+    experience_keywords = ['experience', 'worked', 'employed', 'intern']
+    experience_score = 15 if any(k in text.lower() for k in experience_keywords) else 0
+    
+    skills_score = min(len(skills) * 2, 20)
+    
+    word_count = len(text.split())
+    if word_count > 500:
+        length_score = 30
+    elif word_count > 300:
+        length_score = 20
+    elif word_count > 200:
+        length_score = 15
+    else:
+        length_score = 10
+        
+    total_score = contact_score + phone_score + education_score + experience_score + skills_score + length_score
+    total_score = min(total_score, 100)
+    
+    return {
+        "total": total_score,
+        "breakdown": {
+            "contact_info": contact_score + phone_score,
+            "education": education_score,
+            "experience": experience_score,
+            "skills": skills_score,
+            "formatting_length": length_score
+        }
+    }
+
 def calculate_resume_score(text: str, skills: list) -> int:
     """Calculate resume score based on various factors"""
-    score = 0
-    if "@" in text: score += 10
-    if any(char.isdigit() for char in text) and len(text) > 10: score += 10
-    education_keywords = ['bachelor', 'master', 'phd', 'degree', 'university', 'college']
-    if any(k in text.lower() for k in education_keywords): score += 15
-    experience_keywords = ['experience', 'worked', 'employed', 'intern']
-    if any(k in text.lower() for k in experience_keywords): score += 15
-    score += min(len(skills) * 2, 20)
-    word_count = len(text.split())
-    if word_count > 500: score += 20
-    elif word_count > 300: score += 15
-    elif word_count > 200: score += 10
-    return min(score, 100)
+    return calculate_resume_score_detailed(text, skills)["total"]
 
 def extract_experience_years(text: str) -> float:
     """Extract years of experience from text"""
@@ -1124,29 +1161,41 @@ async def health():
 @app.post("/parse-resume")
 async def parse_resume(file: UploadFile = File(...)):
     """Parse resume and extract skills, experience, and generate score"""
+    session_id = str(uuid.uuid4())
+    file_path = os.path.join(UPLOAD_DIR, f"{session_id}.pdf")
+    
     try:
         if not file.filename.endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
-        
-        session_id = str(uuid.uuid4())
-        file_path = os.path.join(UPLOAD_DIR, f"{session_id}.pdf")
         
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         resume_text = analyzer.extract_text(file_path)
         
-        if not resume_text.strip():
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
-        
+        # If extraction completely fails, handle it gracefully
+        if not resume_text or not resume_text.strip():
+            logger.warning("Empty text extracted from PDF. Using metadata/filename fallback.")
+            resume_text = f"Resume filename: {file.filename}. Please upload a text-based PDF."
+            
         skills = analyzer.extract_skills(resume_text)
-        resume_score = calculate_resume_score(resume_text, skills)
+        score_details = calculate_resume_score_detailed(resume_text, skills)
+        resume_score = score_details["total"]
+        score_breakdown = score_details["breakdown"]
+        
         experience_years = extract_experience_years(resume_text)
         recommendations = generate_recommendations(resume_text, skills, experience_years)
         
+        # Check if we are in fallback text mode
+        warning_msg = None
+        if "Please upload a text-based PDF" in resume_text:
+            warning_msg = "We had trouble reading text from your PDF. The score is a baseline estimate. Please ensure it is a text PDF rather than a scanned image."
+            recommendations.append("Ensure your PDF contains selectable text (not scanned images) to get full analysis.")
+            
         result = {
             "session_id": session_id,
             "resume_score": resume_score,
+            "score_breakdown": score_breakdown,
             "skills_found": skills,
             "experience_years": experience_years,
             "recommendations": recommendations,
@@ -1157,25 +1206,56 @@ async def parse_resume(file: UploadFile = File(...)):
             "has_education": any(k in resume_text.lower() for k in ['bachelor', 'master', 'phd', 'degree']),
             "has_project": "project" in resume_text.lower()
         }
+        if warning_msg:
+            result["warning"] = warning_msg
         
         active_sessions[session_id] = {
             "resume_text": resume_text,
             "skills": skills,
             "resume_score": resume_score,
+            "score_breakdown": score_breakdown,
             "timestamp": datetime.now().isoformat()
         }
-
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            logger.info(f"Cleaned up temp file: {file_path}")
         
         return result
         
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Parse resume error: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        # Robust fallback response in case of system errors
+        fallback_details = {
+            "session_id": session_id,
+            "resume_score": 45,
+            "score_breakdown": {
+                "contact_info": 10,
+                "education": 10,
+                "experience": 10,
+                "skills": 5,
+                "formatting_length": 10
+            },
+            "skills_found": [],
+            "experience_years": 0.0,
+            "recommendations": [
+                "System encountered an error during parsing. Returning baseline estimate.",
+                f"Error detail: {str(e)}"
+            ],
+            "word_count": 0,
+            "filename": file.filename,
+            "warning": f"AI Parsing error: {str(e)}. Using fallback score."
+        }
+        return fallback_details
+    finally:
+        # Clean up temp file
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Cleaned up temp file: {file_path}")
+            except Exception as clean_ex:
+                logger.error(f"Failed to delete temp file {file_path}: {clean_ex}")
 
 @app.post("/generate-questions")
 async def generate_interview_questions(

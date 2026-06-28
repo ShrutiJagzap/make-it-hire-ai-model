@@ -1056,52 +1056,354 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pr
 
 # ==================== HELPER FUNCTIONS ====================
 
+def partition_resume(text: str) -> dict:
+    """Intelligently partition the resume text into sections using regex headers."""
+    text_lower = text.lower()
+    
+    # Define header keywords for each section
+    section_patterns = {
+        "skills": [
+            r'\btechnical skills\b', r'\bcore competencies\b', r'\bkey skills\b',
+            r'\bskills & tools\b', r'\btechnical expertise\b', r'\bskills\b', 
+            r'\btechnologies\b', r'\bexpertise\b'
+        ],
+        "experience": [
+            r'\bwork experience\b', r'\bprofessional experience\b', r'\bemployment history\b',
+            r'\bwork history\b', r'\bcareer history\b', r'\bexperience\b', r'\bemployment\b'
+        ],
+        "education": [
+            r'\beducational background\b', r'\bacademic profile\b', r'\bacademic qualification\b',
+            r'\beducational qualification\b', r'\beducation\b', r'\bacademics\b', r'\bqualifications\b'
+        ],
+        "projects": [
+            r'\bacademic projects\b', r'\bkey projects\b', r'\bpersonal projects\b',
+            r'\brecent projects\b', r'\btechnical projects\b', r'\bprojects\b'
+        ]
+    }
+    
+    found_headers = []
+    
+    for section, patterns in section_patterns.items():
+        for pattern in patterns:
+            for match in re.finditer(pattern, text_lower):
+                start, end = match.span()
+                # Heuristic: Check if the match is at the start of a line or preceded by newline/spaces
+                before = text_lower[max(0, start - 10):start]
+                if start == 0 or '\n' in before or re.match(r'^\s*$', before):
+                    found_headers.append({
+                        "section": section,
+                        "start": start,
+                        "end": end
+                    })
+                    break # Use the first good header match for this section
+                    
+    found_headers.sort(key=lambda x: x["start"])
+    
+    sections = {
+        "skills": "",
+        "experience": "",
+        "education": "",
+        "projects": "",
+        "contact_info": "",
+        "other": ""
+    }
+    
+    if not found_headers:
+        sections["other"] = text
+        return sections
+        
+    # Text before the first header is contact_info / summary
+    first_start = found_headers[0]["start"]
+    sections["contact_info"] = text[:first_start]
+    
+    for i, header in enumerate(found_headers):
+        current_section = header["section"]
+        start_idx = header["end"]
+        end_idx = found_headers[i+1]["start"] if i + 1 < len(found_headers) else len(text)
+        sections[current_section] += " " + text[start_idx:end_idx]
+        
+    return {k: v.strip() for k, v in sections.items()}
+
+def extract_experience_years_improved(text: str) -> float:
+    """Extract years of experience from explicit patterns and date ranges."""
+    # Look for explicit patterns like "X+ years", "X years of experience"
+    patterns = [
+        r'(\d+(?:\.\d+)?)\+?\s*years?\s+(?:of\s+)?experience',
+        r'experience\s+(?:of\s+)?(\d+(?:\.\d+)?)\+?\s*years?',
+        r'(\d+(?:\.\d+)?)\+?\s*years?\s+experience',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                pass
+                
+    # Search for year ranges (e.g. 2018 - 2022 or 2020 to Present)
+    # Match pairs of years or year-to-present
+    range_regex = r'\b(19\d{2}|20\d{2})\s*(?:-|to|until)\s*(Present|Current|Now|\b(?:19|20)\d{2}\b)'
+    ranges = re.findall(range_regex, text, re.IGNORECASE)
+    
+    current_year = datetime.now().year
+    total_years = 0.0
+    
+    if ranges:
+        for start_yr, end_yr in ranges:
+            try:
+                start = int(start_yr)
+                if end_yr.lower() in ['present', 'current', 'now']:
+                    end = current_year
+                else:
+                    end = int(end_yr)
+                duration = end - start
+                if 0 < duration <= 40: # Ignore invalid spans
+                    total_years += duration
+            except ValueError:
+                pass
+                
+    if total_years > 0:
+        return min(total_years, 20.0)
+        
+    # Fallback to simple year logic
+    year_pattern = r'\b(19\d{2}|20\d{2})\b'
+    years = [int(y) for y in re.findall(year_pattern, text)]
+    if years:
+        min_year = min(years)
+        max_year = max(years)
+        diff = max_year - min_year
+        if 0 < diff <= 15:
+            return float(diff)
+            
+    return 0.0
+
+def extract_experience_years(text: str) -> float:
+    """Wrapper function to extract experience years"""
+    sections = partition_resume(text)
+    exp_text = sections.get("experience", "")
+    if exp_text:
+        return extract_experience_years_improved(exp_text)
+    return extract_experience_years_improved(text)
+
 def calculate_resume_score_detailed(text: str, skills: list) -> dict:
-    """Calculate resume score and return detailed breakdown"""
+    """Calculate resume score based on various weighted factors, out of 100."""
     if not text or not text.strip():
         return {
             "total": 35,
             "breakdown": {
-                "contact_info": 10,
+                "contact_info": 5,
                 "education": 10,
-                "experience": 5,
+                "experience": 10,
                 "skills": 5,
-                "formatting_length": 5
+                "projects": 3,
+                "formatting_length": 2
             }
         }
         
-    contact_score = 10 if "@" in text else 0
-    phone_score = 10 if (any(char.isdigit() for char in text) and len(text) > 9) else 0
+    sections = partition_resume(text)
     
-    education_keywords = ['bachelor', 'master', 'phd', 'degree', 'university', 'college']
-    education_score = 15 if any(k in text.lower() for k in education_keywords) else 0
-    
-    experience_keywords = ['experience', 'worked', 'employed', 'intern']
-    experience_score = 15 if any(k in text.lower() for k in experience_keywords) else 0
-    
-    skills_score = min(len(skills) * 2, 20)
-    
-    word_count = len(text.split())
-    if word_count > 500:
-        length_score = 30
-    elif word_count > 300:
-        length_score = 20
-    elif word_count > 200:
-        length_score = 15
-    else:
-        length_score = 10
+    # 1. Contact Info (Max 10)
+    contact_score = 0
+    # Email
+    if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text):
+        contact_score += 3
+    elif "@" in text:
+        contact_score += 2
         
-    total_score = contact_score + phone_score + education_score + experience_score + skills_score + length_score
+    # Phone number
+    phone_pattern = r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\b\d{10}\b'
+    if re.search(phone_pattern, text):
+        contact_score += 3
+    elif any(char.isdigit() for char in text) and len(text) > 9:
+        contact_score += 2
+        
+    # LinkedIn
+    if "linkedin" in text.lower():
+        contact_score += 2
+        
+    # GitHub or Portfolio
+    if "github" in text.lower() or "portfolio" in text.lower() or "personal website" in text.lower() or "website" in text.lower():
+        contact_score += 2
+        
+    contact_score = min(contact_score, 10)
+    
+    # 2. Education (Max 15)
+    education_score = 0
+    education_text = sections.get("education", "")
+    
+    # Degree patterns
+    phd_pat = r'\bph\.?d\.?\b|doctor of philosophy'
+    master_pat = r'\bm\.?s\.?\b|master|m\.?tech\b|m\.?b\.?a\.?\b|m\.?c\.?a\.?\b'
+    bachelor_pat = r'\bb\.?s\.?\b|bachelor|b\.?tech\b|b\.?e\.?\b|b\.?c\.?a\.?\b|b\.?b\.?a\.?\b'
+    associate_pat = r'\bassociate\b|\bdiploma\b'
+    
+    search_text = education_text if education_text else text
+    
+    degree_points = 0
+    if re.search(phd_pat, search_text, re.IGNORECASE):
+        degree_points = 10
+    elif re.search(master_pat, search_text, re.IGNORECASE):
+        degree_points = 8
+    elif re.search(bachelor_pat, search_text, re.IGNORECASE):
+        degree_points = 6
+    elif re.search(associate_pat, search_text, re.IGNORECASE):
+        degree_points = 4
+    elif "degree" in search_text.lower() or "university" in search_text.lower() or "college" in search_text.lower():
+        degree_points = 4
+        
+    education_score += degree_points
+    
+    # Academic institutions & Major keywords
+    academic_inst_pat = r'\buniversity\b|\bcollege\b|\binstitute\b|\bacademy\b|\bschool\b'
+    if re.search(academic_inst_pat, search_text, re.IGNORECASE):
+        education_score += 3
+        
+    major_pat = r'\bcomputer science\b|\bengineering\b|\binformation technology\b|\bmathematics\b|\bbusiness\b|\bfinance\b|\bscience\b|\bmajor\b'
+    if re.search(major_pat, search_text, re.IGNORECASE):
+        education_score += 2
+        
+    education_score = min(education_score, 15)
+    
+    # 3. Experience (Max 20)
+    exp_text = sections.get("experience", "")
+    experience_years = extract_experience_years_improved(exp_text if exp_text else text)
+    experience_score = 0
+    
+    # Base score on years of experience
+    if experience_years >= 5:
+        experience_score += 16
+    elif experience_years >= 3:
+        experience_score += 12
+    elif experience_years >= 1:
+        experience_score += 8
+    elif experience_years > 0:
+        experience_score += 4
+        
+    # Quality / relevance keywords in experience section
+    action_verbs = ['developed', 'designed', 'managed', 'led', 'implemented', 'optimized', 'delivered', 'collaborated', 'created', 'built']
+    exp_text = sections.get("experience", "") if sections.get("experience", "") else text
+    verb_count = sum(1 for verb in action_verbs if verb in exp_text.lower())
+    
+    if verb_count >= 4:
+        experience_score += 4
+    elif verb_count >= 2:
+        experience_score += 2
+    elif verb_count >= 1:
+        experience_score += 1
+        
+    experience_score = min(experience_score, 20)
+    
+    # 4. Skills (Max 25)
+    skills_score = 0
+    if skills:
+        # Each unique skill is worth 3 points, up to 18 points (requires 6 skills)
+        skills_score += min(len(skills) * 3, 18)
+        
+        # Advanced / specialized skills add extra weight, up to 7 points (2 points per advanced skill)
+        advanced_techs = ['aws', 'docker', 'kubernetes', 'cloud', 'devops', 'ci/cd', 'cicd', 'microservices', 'system design', 'machine learning', 'tensorflow', 'pytorch', 'django', 'spring boot']
+        adv_count = sum(1 for tech in advanced_techs if tech in [s.lower() for s in skills])
+        skills_score += min(adv_count * 2, 7)
+        
+    skills_score = min(skills_score, 25)
+    
+    # 5. Projects (Max 15)
+    projects_score = 0
+    projects_text = sections.get("projects", "")
+    
+    if projects_text:
+        projects_score += 5  # Section presence
+        
+        # Count bullets or paragraphs
+        bullets = len(re.findall(r'^\s*[-*•]\s+', projects_text, re.MULTILINE))
+        if bullets >= 4:
+            projects_score += 5
+        elif bullets >= 2:
+            projects_score += 3
+        else:
+            words = len(projects_text.split())
+            if words > 100:
+                projects_score += 5
+            elif words > 50:
+                projects_score += 3
+            elif words > 15:
+                projects_score += 1
+                
+        # Count technical terms inside project text
+        techs_in_projects = sum(1 for skill in skills if skill in projects_text.lower())
+        projects_score += min(techs_in_projects * 1.5, 5.0)
+        
+    elif "project" in text.lower():
+        # Fallback if section wasn't clearly separated
+        projects_score = 5
+        project_mentions = len(re.findall(r'\bproject\b', text, re.IGNORECASE))
+        if project_mentions >= 3:
+            projects_score += 5
+        elif project_mentions >= 1:
+            projects_score += 3
+        projects_score += min(len(skills) * 0.5, 5.0)
+        
+    projects_score = min(round(projects_score), 15)
+    
+    # 6. Formatting / Content Quality (Max 15)
+    # Word count
+    word_count = len(text.split())
+    if 300 <= word_count <= 800:
+        length_score = 5
+    elif 150 <= word_count < 300:
+        length_score = 3
+    elif word_count > 800:
+        length_score = 4
+    else:
+        length_score = 1
+        
+    # Formatting (headers found)
+    sections_found = sum(1 for sec, val in sections.items() if val and sec not in ["other", "contact_info"])
+    bullet_points = len(re.findall(r'^\s*[-*•]\s+', text, re.MULTILINE))
+    
+    formatting_score = min(sections_found * 1.25, 4.0)
+    if bullet_points >= 8:
+        formatting_score += 1.0
+    elif bullet_points >= 4:
+        formatting_score += 0.5
+        
+    # Keyword density
+    industry_keywords = [
+        "develop", "software", "design", "manage", "team", "engineer", "build", 
+        "solution", "system", "code", "programming", "implement", "deploy", 
+        "test", "analysis", "data", "cloud", "project", "technology", "agile"
+    ]
+    keyword_count = 0
+    text_lower = text.lower()
+    for kw in industry_keywords:
+        keyword_count += text_lower.count(kw)
+        
+    if keyword_count >= 15:
+        density_score = 5
+    elif keyword_count >= 10:
+        density_score = 4
+    elif keyword_count >= 5:
+        density_score = 2.5
+    elif keyword_count >= 2:
+        density_score = 1
+    else:
+        density_score = 0
+        
+    formatting_length_score = round(length_score + formatting_score + density_score)
+    formatting_length_score = min(formatting_length_score, 15)
+    
+    # Total
+    total_score = contact_score + education_score + experience_score + skills_score + projects_score + formatting_length_score
     total_score = min(total_score, 100)
     
     return {
         "total": total_score,
         "breakdown": {
-            "contact_info": contact_score + phone_score,
+            "contact_info": contact_score,
             "education": education_score,
             "experience": experience_score,
             "skills": skills_score,
-            "formatting_length": length_score
+            "projects": projects_score,
+            "formatting_length": formatting_length_score
         }
     }
 
@@ -1109,39 +1411,61 @@ def calculate_resume_score(text: str, skills: list) -> int:
     """Calculate resume score based on various factors"""
     return calculate_resume_score_detailed(text, skills)["total"]
 
-def extract_experience_years(text: str) -> float:
-    """Extract years of experience from text"""
-    patterns = [
-        r'(\d+)\+?\s*years? of experience',
-        r'experience of (\d+)\+?\s*years?',
-        r'(\d+)\+?\s*years? experience',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text.lower())
-        if match:
-            return float(match.group(1))
-    years = re.findall(r'\b(20\d{2})\b', text)
-    if years:
-        return 2026 - int(max(years))
-    return 0.0
-
 def generate_recommendations(text: str, skills: list, experience: float) -> list:
-    """Generate resume improvement recommendations"""
+    """Generate resume improvement recommendations based on computed breakdown."""
+    score_details = calculate_resume_score_detailed(text, skills)
+    breakdown = score_details["breakdown"]
+    
     recommendations = []
-    if not skills:
-        recommendations.append("Add a dedicated skills section with relevant technical skills")
-    elif len(skills) < 5:
-        recommendations.append("Include more relevant skills to improve your profile")
-    if not experience or experience < 1:
-        recommendations.append("Clearly mention your years of experience")
-    if "education" not in text.lower() and "university" not in text.lower():
-        recommendations.append("Add your educational qualifications")
-    if "project" not in text.lower():
-        recommendations.append("Include projects you've worked on with specific achievements")
-    if len(text.split()) < 200:
-        recommendations.append("Add more content to your resume - aim for at least 200-300 words")
+    
+    # Contact Info
+    if breakdown.get("contact_info", 0) < 7:
+        missing_contact = []
+        if "@" not in text:
+            missing_contact.append("email address")
+        if not (any(char.isdigit() for char in text) and len(text) > 9):
+            missing_contact.append("phone number")
+        if "linkedin" not in text.lower():
+            missing_contact.append("LinkedIn profile link")
+        if missing_contact:
+            recommendations.append(f"Add missing contact details to header: {', '.join(missing_contact)}.")
+            
+    # Skills
+    if len(skills) < 5:
+        recommendations.append("Include more technical skills relevant to your target jobs. Aim for at least 6-8 core technologies.")
+    elif breakdown.get("skills", 0) < 18:
+        recommendations.append("Differentiate your skills section by grouping them into categories (e.g. Languages, Frameworks, Tools).")
+        
+    # Experience
+    if experience < 1:
+        recommendations.append("Provide details on your professional experience or internships, highlighting roles and key tasks.")
+    elif breakdown.get("experience", 0) < 15:
+        recommendations.append("Use strong action verbs (e.g., 'led', 'developed', 'optimized') in your experience descriptions to show impact.")
+        
+    # Education
+    if breakdown.get("education", 0) < 10:
+        recommendations.append("Make sure your educational qualifications (degree name, major, university, graduation year) are clearly listed.")
+        
+    # Projects
+    if breakdown.get("projects", 0) < 8:
+        recommendations.append("Add a 'Projects' section highlighting personal or academic coding projects with the technologies used.")
+    elif breakdown.get("projects", 0) < 13:
+        recommendations.append("Describe your projects using the STAR method (Situation, Task, Action, Result) and mention specific tech stack details.")
+        
+    # Content Quality & Formatting
+    word_count = len(text.split())
+    if word_count < 200:
+        recommendations.append("Expand the content of your resume. An ideal resume has between 300 and 800 words of dense, relevant text.")
+    elif word_count > 900:
+        recommendations.append("Your resume might be too lengthy. Try to condense your descriptions to keep it concise and under 2 pages.")
+        
+    bullet_points = len(re.findall(r'^\s*[-*•]\s+', text, re.MULTILINE))
+    if bullet_points < 5:
+        recommendations.append("Use bullet points instead of long paragraphs to make your experience and project descriptions easy to scan.")
+        
     if not recommendations:
-        recommendations.append("Your resume looks good! Consider adding more quantifiable achievements")
+        recommendations.append("Your resume is well-structured! Consider tailoring it with specific keywords from the job description for each application.")
+        
     return recommendations
 
 # ==================== ENDPOINTS ====================
@@ -1231,11 +1555,12 @@ async def parse_resume(file: UploadFile = File(...)):
             "session_id": session_id,
             "resume_score": 45,
             "score_breakdown": {
-                "contact_info": 10,
+                "contact_info": 5,
                 "education": 10,
                 "experience": 10,
-                "skills": 5,
-                "formatting_length": 10
+                "skills": 10,
+                "projects": 5,
+                "formatting_length": 5
             },
             "skills_found": [],
             "experience_years": 0.0,

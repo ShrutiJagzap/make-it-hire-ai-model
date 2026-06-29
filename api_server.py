@@ -1020,7 +1020,6 @@ async def verify_identity(
                 img2_path=live_path,
                 model_name="VGG-Face",
                 enforce_detection=False,
-                silent=True
             )
             verified = result['verified']
             confidence = round((1 - result['distance']) * 100, 2)

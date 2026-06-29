@@ -1099,6 +1099,7 @@ async def verify_identity(
                 img1_resized = cv2.resize(img1, (224, 224))
                 img2_resized = cv2.resize(img2, (224, 224))
                 
+                from deepface import DeepFace
                 result = DeepFace.verify(
                     img1_path=img1_resized,
                     img2_path=img2_resized,

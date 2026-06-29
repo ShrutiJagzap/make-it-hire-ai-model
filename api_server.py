@@ -9,6 +9,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["TORCH_NUM_THREADS"] = "1"
 
 import shutil, uuid, cv2, json
 import base64
@@ -24,6 +25,10 @@ import time
 # import whisper
 import tempfile
 import subprocess
+import threading
+
+# Global lock to serialize heavy ML model inferences and avoid memory crashes
+ml_lock = threading.Lock()
 
 # Import your ML modules
 from ml_core.resume_parser import ResumeAnalyzer
@@ -43,7 +48,7 @@ app = FastAPI(title="MakeItHired AI Service")
 PORT = int(os.getenv("PORT", 8000))
 
 
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", 
+ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", 
     "http://localhost:5173,"
     "http://localhost:8081,"
     "https://make-it-hire-frontend.onrender.com,"
@@ -51,9 +56,12 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS",
     "https://make-it-hire-ai-model.onrender.com"
 ).split(",")
 
-# if "https://make-it-hire-frontend.onrender.com" not in ALLOWED_ORIGINS:
-#     ALLOWED_ORIGINS.append("https://make-it-hire-frontend.onrender.com")
+# Clean up ALLOWED_ORIGINS to ensure no trailing whitespaces or slashes
+ALLOWED_ORIGINS = [origin.strip().rstrip('/') for origin in ALLOWED_ORIGINS_RAW if origin.strip()]
 
+# Add wildcard support just in case
+if "*" not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append("*")
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,6 +110,23 @@ def upload_to_firebase(file_path, folder, user_id):
 #     return whisper_model
 
 # ==================== HELPER FUNCTIONS ====================
+
+def cleanup_memory():
+    """Run intensive garbage collection and clear active TF/Keras sessions"""
+    import gc
+    gc.collect()
+    try:
+        import tensorflow as tf
+        tf.keras.backend.clear_session()
+    except Exception:
+        pass
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+    gc.collect()
 
 def partition_resume(text: str) -> dict:
     """Intelligently partition the resume text into sections using regex headers."""
@@ -628,6 +653,7 @@ async def parse_resume(file: UploadFile = File(...)):
                 logger.info(f"Cleaned up temp file: {file_path}")
             except Exception as clean_ex:
                 logger.error(f"Failed to delete temp file {file_path}: {clean_ex}")
+        cleanup_memory()
 
 @app.post("/generate-questions")
 async def generate_interview_questions(
@@ -662,26 +688,29 @@ async def generate_interview_questions(
         
         # Create role-specific prompt for Gemini
         prompt = f"""
-        You are a technical interviewer for a {job_title_text} position.
+        You are an expert technical interviewer for a {job_title_text} position.
         
-        **IMPORTANT: Generate questions SPECIFIC to this role: {job_title_text}**
-        
+        The candidate has applied for this position with the following skills extracted from their resume:
         Candidate's Skills: {candidate_skills}
         
-        Generate EXACTLY 5 interview questions:
+        Generate exactly 5 interview questions tailored specifically for this role:
         
-        1. FIRST QUESTION MUST BE: "Tell me about yourself and your experience relevant to this {job_title_text} role."
+        1. The first question MUST be: "Tell me about yourself and your experience relevant to this {job_title_text} role."
+        2. The remaining 4 questions MUST be highly technical and tailored to the job title "{job_title_text}" and should assess the candidate's skills listed above ({candidate_skills}) where relevant to the role.
+           - If the role is Java-focused (e.g., Java Developer, Spring Boot Developer), ask deep technical questions about Spring Boot, JVM, multithreading, REST APIs, database transactions, etc.
+           - If the candidate's skills include Data Analysis (e.g., pandas, NumPy, SQL, statistics), and the job title is relevant, ask questions about data analysis methodologies, query optimization, or data storytelling.
+           - If the role is Frontend (e.g., React, UI/UX), ask about component lifecycle, state management, web performance, CSS layouts.
+           - If the role is Backend/Fullstack, ask about REST APIs, databases, authentication, microservices.
+           - Ensure each question has a set of 3 key technical keywords (e.g. "JVM", "Spring Boot", "Garbage Collection") that the candidate's answer should contain to get a high score.
         
-        2. For remaining 4 questions, make them SPECIFIC to {job_title_text}:
-           - If Java Full Stack: Ask about Spring Boot, React, REST APIs, databases
-           - If Data Science: Ask about Python, pandas, machine learning algorithms, data visualization
-           - If Frontend: Ask about React/Vue, JavaScript, CSS, state management
-           - If Backend: Ask about APIs, databases, microservices, authentication
-        
-        Format response as JSON:
+        Format your response strictly as a JSON object:
         {{
             "questions": [
-                {{"text": "question text", "type": "intro/technical/problem-solving/behavioral", "keywords": ["keyword1", "keyword2"]}}
+                {{
+                    "text": "The technical interview question text.",
+                    "type": "intro" or "technical" or "problem-solving" or "behavioral",
+                    "keywords": ["keyword1", "keyword2", "keyword3"]
+                }}
             ]
         }}
         """
@@ -734,10 +763,11 @@ async def generate_interview_questions(
             session_data["questions_metadata"] = fallback["metadata"]
             return fallback
             
-            
     except Exception as e:
         logger.error(f"Question generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cleanup_memory()
 
 def generate_fallback_questions(job_title: str, skills: str) -> dict:
     """Generate role-specific fallback questions"""
@@ -964,6 +994,8 @@ async def evaluate_answer(
             "is_complete": False,
             "next_question": None
         }
+    finally:
+        cleanup_memory()
 
 @app.post("/verify-identity")
 async def verify_identity(
@@ -972,6 +1004,7 @@ async def verify_identity(
     user_id: str = Form(None)
 ):
     """Verify candidate identity"""
+    live_path = None
     try:
         logger.info(f"Starting identity verification for session: {session_id}")
         
@@ -989,11 +1022,14 @@ async def verify_identity(
                 "confidence": 0,
                 "message": "Could not capture clear image. Please try again with better lighting."
             }
-
+        
+        # Save live frame temporarily
         live_path = os.path.join(UPLOAD_DIR, f"{session_id}_live.jpg")
         cv2.imwrite(live_path, live_frame)
+        del nparr
+        del image_data
         
-        # Find ID photo
+        # Find ID photo locally
         id_path = None
         if user_id:
             extensions = ['.jpg', '.jpeg', '.png']
@@ -1003,8 +1039,45 @@ async def verify_identity(
                     id_path = test_path
                     break
 
+        # Dynamic Fallback: If ID photo is not found locally (e.g. Render ephemeral filesystem reset),
+        # attempt to download it from the Spring Boot backend static context
+        if not id_path and user_id:
+            logger.info(f"ID photo not found locally for user {user_id}. Attempting download from backend...")
+            try:
+                # Find backend URL from env
+                backend_url = os.getenv("BACKEND_URL") or os.getenv("API_BACKEND_URL") or "https://make-it-hire-backend.onrender.com"
+                backend_url = backend_url.strip().rstrip('/')
+                
+                # Fetch user details to get the saved filename
+                user_res = requests.get(f"{backend_url}/api/auth/user/{user_id}", timeout=5)
+                if user_res.status_code == 200:
+                    user_data = user_res.json()
+                    filename = user_data.get("idPhotoUrl")
+                    if filename:
+                        # Try to download
+                        # Static locations map to /id_photos/{filename}
+                        download_url = f"{backend_url}/id_photos/{filename}"
+                        logger.info(f"Downloading ID photo from: {download_url}")
+                        dl_res = requests.get(download_url, timeout=5)
+                        
+                        if dl_res.status_code != 200:
+                            # Try /uploads/id_photos/ as fallback
+                            download_url = f"{backend_url}/uploads/id_photos/{filename}"
+                            logger.info(f"Fallback downloading ID photo from: {download_url}")
+                            dl_res = requests.get(download_url, timeout=5)
+                            
+                        if dl_res.status_code == 200:
+                            os.makedirs(ID_PHOTOS_DIR, exist_ok=True)
+                            local_file = os.path.join(ID_PHOTOS_DIR, f"user_{user_id}.jpg")
+                            with open(local_file, "wb") as f:
+                                f.write(dl_res.content)
+                            id_path = local_file
+                            logger.info(f"Saved downloaded ID photo to: {id_path}")
+            except Exception as dl_err:
+                logger.error(f"Error fetching ID photo from backend: {dl_err}")
+
         if not id_path:
-            if os.path.exists(live_path):
+            if live_path and os.path.exists(live_path):
                 os.remove(live_path)
             return {
                 "verified": False,
@@ -1013,38 +1086,61 @@ async def verify_identity(
                 "requiresUpload": True
             }
         
-        try:
-            from deepface import DeepFace
-            result = DeepFace.verify(
-                img1_path=id_path,
-                img2_path=live_path,
-                model_name="VGG-Face",
-                enforce_detection=False,
-            )
-            verified = result['verified']
-            confidence = round((1 - result['distance']) * 100, 2)
+        # Perform face verification using serialized Threading Lock to prevent concurrent OOM spikes
+        with ml_lock:
+            try:
+                # Load images and resize to 224x224 to reduce tensor memory allocation size during verification
+                img1 = cv2.imread(id_path)
+                img2 = cv2.imread(live_path)
+                
+                if img1 is None or img2 is None:
+                    raise Exception("Could not load input verification images.")
+                
+                img1_resized = cv2.resize(img1, (224, 224))
+                img2_resized = cv2.resize(img2, (224, 224))
+                
+                from deepface import DeepFace
+                result = DeepFace.verify(
+                    img1_path=img1_resized,
+                    img2_path=img2_resized,
+                    model_name="Facenet",
+                    enforce_detection=False,
+                    silent=True
+                )
+                
+                verified = result.get('verified', False)
+                distance = result.get('distance', 1.0)
+                confidence = round((1 - distance) * 100, 2)
+                
+                if live_path and os.path.exists(live_path):
+                    os.remove(live_path)
+                
+                return {
+                    "verified": verified,
+                    "confidence": confidence,
+                    "message": "Identity verified successfully!" if verified else "Verification failed. Please ensure good lighting."
+                }
             
-            if os.path.exists(live_path):
-                os.remove(live_path)
-            
-            return {
-                "verified": verified,
-                "confidence": confidence,
-                "message": "Identity verified successfully!" if verified else "Verification failed. Please ensure good lighting."
-            }
-        
-        except ImportError:
-            if os.path.exists(live_path):
-                os.remove(live_path)
-            return {
-                "verified": False,
-                "confidence": 0,
-                "message": "Face verification system not available. Please install deepface."
-            }
-            
+            except Exception as deepface_err:
+                logger.error(f"DeepFace verification error: {deepface_err}")
+                if live_path and os.path.exists(live_path):
+                    os.remove(live_path)
+                return {
+                    "verified": False,
+                    "confidence": 0,
+                    "message": f"Biometric verification failed: {str(deepface_err)}"
+                }
+                
     except Exception as e:
         logger.error(f"Verification error: {e}")
+        if live_path and os.path.exists(live_path):
+            try:
+                os.remove(live_path)
+            except Exception:
+                pass
         return {"verified": False, "confidence": 0, "message": f"Verification failed: {str(e)}"}
+    finally:
+        cleanup_memory()
 
 
 
@@ -1112,11 +1208,23 @@ async def analyze_video_frame(
         nparr = np.frombuffer(image_data, np.uint8)
         frame_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
-        analysis = video_analyzer.analyze_behavior(frame_img)
+        if frame_img is None:
+            return {"emotion": "neutral", "engagement_score": 50, "status": "Analyzing"}
+            
+        # Resize frame to 224x224 to reduce RAM memory consumption during emotion detection
+        frame_resized = cv2.resize(frame_img, (224, 224))
+        
+        # Serialize the DeepFace analyze call using our lock
+        with ml_lock:
+            analysis = video_analyzer.analyze_behavior(frame_resized)
+            
         return analysis
         
     except Exception as e:
+        logger.error(f"Video frame analysis error: {e}")
         return {"emotion": "neutral", "engagement_score": 50, "status": "Analyzing"}
+    finally:
+        cleanup_memory()
 
 @app.post("/generate-report")
 async def generate_final_report(
@@ -1243,6 +1351,38 @@ async def get_report(report_id: str):
             return json.load(f)
     raise HTTPException(status_code=404, detail="Report not found")
 
+
+@app.post("/match-job")
+async def match_job(
+    session_id: Optional[str] = Form(None),
+    job_description: str = Form(...)
+):
+    """Calculate semantic matching score between candidate resume and job description"""
+    try:
+        resume_text = ""
+        # Try to retrieve resume text from active sessions
+        if session_id and session_id in active_sessions:
+            resume_text = active_sessions[session_id].get("resume_text", "")
+            
+        if not resume_text:
+            # Fallback: if session not found, find the most recent session's resume_text
+            if active_sessions:
+                latest_session = list(active_sessions.values())[-1]
+                resume_text = latest_session.get("resume_text", "")
+        
+        if not resume_text:
+            return {"match_score": 65.0, "message": "No active resume session found. Using baseline match."}
+            
+        with ml_lock:
+            match_score = engine.calculate_score(resume_text, job_description)
+            
+        return {"match_score": match_score}
+        
+    except Exception as e:
+        logger.error(f"Error matching job: {e}")
+        return {"match_score": 60.0, "message": f"Matching failed: {str(e)}"}
+    finally:
+        cleanup_memory()
 
 @app.post("/speech-to-text")
 async def speech_to_text(audio: UploadFile = File(...)):

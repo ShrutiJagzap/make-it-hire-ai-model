@@ -1,0 +1,44 @@
+services:
+  # Spring Boot Backend Service
+  - type: web
+    name: make-it-hire-backend
+    env: docker
+    plan: free
+    buildCommand: ""
+    startCommand: ""
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: AI_SERVICE_URL
+        value: https://make-it-hire-ai-model.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+
+  # Python FastAPI AI Microservice
+  - type: web
+    name: make-it-hire-ai-model
+    env: docker
+    plan: free
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: BACKEND_URL
+        value: https://make-it-hire-backend.onrender.com
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: TF_NUM_INTRAOP_THREADS
+        value: "1"
+      - key: TF_NUM_INTEROP_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      - key: NUMEXPR_NUM_THREADS
+        value: "1"
+      - key: VECLIB_MAXIMUM_THREADS
+        value: "1"
+      - key: TORCH_NUM_THREADS
+        value: "1"

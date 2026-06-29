@@ -46,11 +46,21 @@ class RecruitmentEngine:
             from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer('all-MiniLM-L6-v2')
             
-        from sentence_transformers import util
-        emb1 = self.model.encode(resume_text, convert_to_tensor=True)
-        emb2 = self.model.encode(jd_text, convert_to_tensor=True)
-        score = util.cos_sim(emb1, emb2)
-        return round(float(score[0][0]) * 100, 2)
+        # Encode as numpy arrays to save CPU memory
+        emb1 = self.model.encode(resume_text, convert_to_tensor=False)
+        emb2 = self.model.encode(jd_text, convert_to_tensor=False)
+        
+        import numpy as np
+        # Manual cosine similarity using numpy
+        dot_product = np.dot(emb1, emb2)
+        norm_a = np.linalg.norm(emb1)
+        norm_b = np.linalg.norm(emb2)
+        if norm_a == 0 or norm_b == 0:
+            score = 0.0
+        else:
+            score = dot_product / (norm_a * norm_b)
+            
+        return round(float(score) * 100, 2)
 
     def verify_identity(self, id_path, frame):
         """Strict biometric check. No bypass allowed."""

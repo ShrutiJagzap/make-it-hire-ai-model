@@ -5,8 +5,8 @@ python-multipart==0.0.6
 
 # ML/AI
 # spacy==3.7.2
-sentence-transformers==2.2.2
-deepface==0.0.79
+# sentence-transformers==2.2.2
+# deepface==0.0.79
 opencv-python-headless==4.8.1.78
 numpy==1.24.3
 google-cloud-storage==2.10.0
@@ -30,5 +30,5 @@ python-dotenv==1.0.0
 # For face detection fallback
 # opencv-contrib-python==4.8.1.78
 
-tensorflow==2.15.0
-keras==2.15.0
+# tensorflow==2.15.0
+# keras==2.15.0

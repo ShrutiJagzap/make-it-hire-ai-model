@@ -43,7 +43,7 @@ class VideoAnalyzer:
         try:
             from deepface import DeepFace
             # Use the most accurate emotion model
-            analysis = DeepFace.analyze(img_path=frame, actions=['emotion'], enforce_detection=False, silent=True)
+            analysis = DeepFace.analyze(img_path=frame, actions=['emotion'], enforce_detection=False)
             res = analysis[0]
             dom_emotion = res['dominant_emotion']
             

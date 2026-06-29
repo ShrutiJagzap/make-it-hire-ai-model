@@ -238,8 +238,7 @@ class RecruitmentInference:
             img2_path="temp_verify.jpg", 
             model_name="VGG-Face",
             enforce_detection=False,
-            distance_metric="cosine",
-            silent=True
+            distance_metric="cosine"
         )
         if os.path.exists("temp_verify.jpg"):
             os.remove("temp_verify.jpg")

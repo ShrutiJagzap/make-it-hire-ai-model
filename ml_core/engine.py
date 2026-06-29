@@ -68,7 +68,7 @@ class RecruitmentEngine:
         cv2.imwrite(temp, frame)
         try:
             from deepface import DeepFace
-            result = DeepFace.verify(img1_path=id_path, img2_path=temp, enforce_detection=False, silent=True)
+            result = DeepFace.verify(img1_path=id_path, img2_path=temp, enforce_detection=False)
             if os.path.exists(temp): os.remove(temp)
             conf = round((1 - result['distance']) * 100, 2)
             return result['verified'], conf
